@@ -1,0 +1,868 @@
+﻿Here's a clean, practical plan to build your XLand-style open-ended RL playground using Jax2D as the physics backbone.
+We will keep two separate games (not one combined world):
+* Celeste Mode — Precision platforming focus (tight movement, dashes, variable jump, wall jumps, one-way platforms, spikes, moving platforms, crystals/berries as collectibles).
+* Hollow Knight Mode — Combat + exploration focus (nail attacks, pogo bouncing on enemies, spells, geo collection, simple enemy AI, bosses, acid pools, etc.).
+At setup/env creation, you choose the game mode via a config flag (e.g. game="celeste" or game="hollow_knight"). This keeps the code modular, easier to tune physics & rewards per game, and still allows shared infrastructure for procedural generation, training loops, and meta-RL.
+Overall Architecture (Pure JAX style)
+* EnvState: A single flax.struct.dataclass (or pytree) that holds everything — player, physics bodies, level geometry, timers, game-specific flags, RNG, etc.
+* reset(key, config) → returns initial state + obs
+* step(state, action, key) → new_state, reward, done, info
+* Everything jit + vmap compatible for thousands of parallel envs.
+* Use Jax2D for all rigid-body simulation (player as dynamic body, platforms as static or kinematic, enemies as dynamic bodies, etc.).
+* Add game-specific logic on top of the physics step using jax.lax.cond, select, while_loop/scan for things like coyote time, input buffering, dash state machines.
+World Design — As Close as Possible to the Original Games
+Shared World Features (both modes)
+* Side-view 2D world (fixed camera or simple following viewport for RL obs).
+* Tile-based or polygon-based levels (procedurally generated at reset).
+* Gravity, variable friction on surfaces.
+* Collision layers: player, terrain, hazards, enemies, collectibles.
+* Dynamic scenes in Jax2D → different number of platforms/enemies per level is fine (use padding + masks for vmap).
+* Procedural level generation:
+   * Start with a simple noise-based or grammar-based generator (rooms + corridors + vertical shafts).
+   * Add platforms, gaps, spikes/hazards, moving platforms, collectibles.
+   * For open-ended XLand flavor: a task proposer that samples variations (difficulty ramp, new mechanics combos) based on agent performance (like POET or XLand curriculum).
+Celeste Mode World (Precision Platforming)
+* Tight, responsive movement (aim for that buttery Celeste feel).
+* Core mechanics to implement on top of Jax2D:
+   * Horizontal air/ground acceleration with different values.
+   * Variable jump height (hold jump = higher).
+   * Coyote time + jump buffering (short grace periods).
+   * Dash: 8-directional, limited uses per ground touch, cooldown, dash-cancel possible.
+   * Wall jump / wall slide.
+   * One-way platforms (pass through from below, land from above).
+   * Moving platforms (kinematic bodies in Jax2D).
+   * Hazards: spikes (instant death or damage), falling blocks.
+   * Collectibles: strawberries / crystals (small reward), winged strawberries (harder).
+   * Goal: reach exit flag / orb within time limit or with minimal deaths.
+* Level style: Mix of vertical climbing, horizontal gaps, challenge rooms. Levels ~ 20–60 seconds long for RL.
+Hollow Knight Mode World (Combat + Metroidvania lite)
+* Slightly looser platforming + heavy emphasis on combat.
+* Core mechanics:
+   * Nail slash (short range attack, cooldown, can be directional or omnidirectional).
+   * Pogo: Attack downward on enemy/terrain to bounce (high reward for skillful use).
+   * Simple spells (e.g. fireball or area burst).
+   * Enemy types: basic walker, flyer, spitter, turret. Each with simple state machine (patrol → attack).
+   * Bosses: larger bodies with patterns (one or two attack phases).
+   * Geo (currency) pickups.
+   * Hazards: acid pools (damage over time), thorns, saws.
+   * Goal: defeat all enemies in room + reach exit, or defeat boss, or collect enough geo.
+* Level style: Larger connected areas with backtracking elements, enemy patrols, hidden geo.
+Key Differences Between Modes (in code)
+* Different player body properties (size, friction, max velocity).
+* Different action spaces or masked actions:
+   * Celeste: move_x, jump, dash_dir (or discrete).
+   * Hollow Knight: move_x, jump, attack, attack_dir, spell.
+* Different reward functions and termination conditions.
+* Different procedural generators (Celeste → more precise platform spacing; HK → more open space + enemy placement).
+* Separate observation components (e.g., enemy velocities more important in HK).
+You can share 70–80% of the code (physics step, collision handling, rendering if visual, level gen base) and branch only on game-specific logic.
+Next Steps — Implementation Plan
+1. Setup Jax2D Clone https://github.com/MichaelTMatthews/Jax2D Install and run the examples (car.py is a good start to see dynamic bodies).
+2. Minimal Player + Platform Env
+   * Create a static ground + few platforms (static bodies).
+   * Player as dynamic circle or capsule (better for platformers).
+   * Implement basic move + jump on top of Jax2D step.
+   * Add coyote + buffer as state variables (not pure physics).
+3. Add Game-Specific Mechanics
+   * Celeste first (easier to tune feel): dash, wall jump, one-way.
+   * Then Hollow Knight: attack raycast or small hitbox, pogo bounce (impulse on downward attack).
+4. Procedural Level + Task Generation (XLand part)
+   * At reset: generate level geometry → create Jax2D bodies.
+   * Sample task: "reach exit", "collect 5 crystals", "defeat 3 enemies", "pogo across gap", etc.
+   * Curriculum: track success rate per task family → increase complexity.
+5. Observations & Actions
+   * Low-dim first (player pos/vel, nearby body info, raycasts) for fast iteration.
+   * Later add pixel obs using JaxGL (the companion renderer from the Kinetix team).
+   * Actions: discrete 8–12 actions or multi-discrete.
+6. Training Use PureJaxRL or your own PPO/ES loop with massive vmap (aim for 10k–100k+ parallel envs).
+Questions to Lock In the Plan
+* Which mode do you want to implement first? (I recommend Celeste — the movement feel is the hardest and most important part.)
+* Do you want pixel (RGB) observations from the start (using JaxGL) or low-dimensional state first?
+* Preferred action space: fully discrete, or some continuous elements (e.g. dash direction)?
+* Target scale: how many parallel envs are you aiming for on your hardware?
+Once we decide the first milestone (e.g. "Celeste player with dash + basic platforms running at 5000+ envs"), I can give you a concrete code skeleton with Jax2D usage.
+This setup should get you very close to the original games' feel while staying fully JAX-native and massively scalable for open-ended RL.
+
+
+Perfect — since it's open source and hardware-agnostic, we'll design everything to scale nicely from a laptop (CPU or single GPU, ~1k–8k parallel envs) up to big clusters (A100/H100, 32k–100k+ envs). Jax2D + pure JAX makes this straightforward with vmap + jit + pmap if needed.
+We'll start with Celeste mode only (as planned). Once the movement feels buttery and agents can solve hard procedural levels, we'll add the Hollow Knight combat/boss layer on the exact same base.
+Final High-Level Design (Headless, Open-Source Ready)
+Repo Structure (suggested)
+text
+celestknight-xland/
+├── jax2d_env/
+│   ├── __init__.py
+│   ├── config.py          # GameConfig, CelesteConfig, etc.
+│   ├── state.py           # EnvState dataclass
+│   ├── celeste.py         # game-specific logic (dash, coyote, one-way, etc.)
+│   ├── hk_layer.py        # future: pogo, nail, enemy AI, bosses
+│   ├── level_gen.py       # procedural level + task sampler (XLand-style)
+│   ├── env.py             # main reset/step (shared)
+│   └── observations.py    # low-dim obs construction
+├── training/              # PureJaxRL PPO or your loop
+├── tests/
+└── README.md
+Key Principles
+* Everything is a pytree → fully jit/vmap compatible.
+* Jax2D handles rigid-body collisions, integration, impulses.
+* Custom game logic (coyote time, dash, one-way platforms, variable jump) lives in pure JAX functions with lax.cond/select.
+* Dynamic scenes: different number of platforms/enemies per env is ok, but for clean vmap we pad + use masks.
+* No rendering, no graphics.
+World for Celeste Mode (as close as possible, simplified for RL)
+* Units: World ~ 40m wide × 30m tall (Jax2D uses meters-like units; tune gravity to ~ -30 to -40).
+* Player: Capsule shape (radius ~0.4, height ~1.2) or box with rounded feel. Dynamic body.
+* Terrain: Static polygons/boxes for solid ground/walls. Kinematic bodies for moving platforms.
+* One-way platforms: Handled in post-physics (inspired by classic Box2D patterns): after scene.step(), check player downward velocity and contact normal; disable response if player is coming from below or pressing down.
+* Hazards: Static spike polygons → overlap = death.
+* Collectibles: Small static circles ("strawberries") → overlap = +reward + remove (mark as collected via mask).
+* Goal: Static sensor rectangle → overlap = big reward + terminal.
+* Procedural Levels (XLand flavor):
+   * Start on left platform, goal on right/top.
+   * Generate sequence of gaps, floating platforms, vertical climbs, spike pits.
+   * Vary difficulty: gap width, platform spacing, moving platforms, dash-required sections.
+   * Task sampler: "reach goal", "collect K berries", "reach goal under time limit", with curriculum based on success rate.
+Player Mechanics (the "nail the feel" part)
+* Ground vs air acceleration/friction.
+* Variable jump (strong initial impulse, reduce while holding).
+* Coyote time (grace period after leaving ground).
+* Jump buffer (queue jump for ~6–8 frames).
+* Dash: 8 directions (discrete or continuous), 1 use in air, refills on ground. Instant velocity boost + short cooldown.
+* Wall slide (slow fall) + wall jump (angled kick).
+These will be state variables in EnvState and updated with lax.scan or simple cond chains.
+Observations (~40–60 dims, compact vector)
+* Player: pos (2), vel (2), on_ground (bool), coyote_remaining, dash_remaining, facing, timers (dash_cooldown, jump_buffer).
+* Raycasts: 8–12 rays (down for ground, forward, diagonals) → distances to terrain/hazard.
+* Nearest items: relative pos to goal + 2–3 collectibles (with mask).
+* Task: distance to goal, time left, collected count.
+Rewards
+* Sparse: +1000 reach goal, -200 death, +50 berry.
+* Shaped: small progress toward goal or berry, alive bonus optional.
+First Working Milestone (Let's Build This Now)
+A minimal but runnable CelesteEnv with:
+* Static ground + 3–4 platforms (including one one-way).
+* Player that can move left/right, jump, and dash (horizontal first, then 8-dir).
+* Reach a goal zone.
+* Fully vectorized (vmap over batch of envs).
+* Low-dim obs + reward + done.
+Once this runs and feels responsive, we add procedural gen + curriculum + more mechanics.
+Next: Code Skeleton
+I can give you the full initial files right now:
+1. config.py + state.py (EnvState with Jax2D Scene inside)
+2. Basic reset that builds a simple level using Jax2D helpers (add_rectangle_to_scene, add_circle_to_scene, etc. from the examples).
+3. step outline: game logic → apply forces/impulses → scene.step() → post-process collisions/one-way → update timers → obs/reward/done.
+Do you want me to drop the complete starter code for the minimal static-level Celeste env now? (Based on Jax2D's current API from the car.py example and docs.)
+Or would you prefer:
+* First just the EnvState dataclass + how to wrap Jax2D Scene?
+* Focus on one-way platform implementation details?
+* Or a simple level generator sketch first?
+Since it's open source, we can make the repo clean, well-documented, and easy for others to contribute (e.g. add HK bosses later as a separate module).
+For each boss, I've included:
+* Location
+* Phases (if multi-phase)
+* Main moves/attacks (with brief description)
+* Abilities/special mechanics
+* Speed/movement notes (relative feel — "slow", "medium", "fast/aggressive", "very fast")
+* Health (approximate base values; variants like Ascended/Radiant are higher or one-hit)
+This is structured for easy copy-paste into your doc. I prioritized accuracy for RL implementation (telegraphs, timings, pogo opportunities, dodge windows, etc.).
+Early Game / Crossroads & Greenpath
+False Knight (Forgotten Crossroads)
+* Phases: 1 main + stagger reveals true form (Mighty Hegemol? No, just a maggot in armor).
+* Moves: Ground slam (shockwaves left/right), overhead smash (falling rocks after staggers), charge/jump slam.
+* Abilities: Stagger 3x to break armor; rocks can be reflected for damage.
+* Speed: Slow, telegraphed.
+* Health: ~260 per phase ×3.
+Gruz Mother (Forgotten Crossroads)
+* Moves: Body slam/jump, spit acid blobs, burst spawn gruzzers on death.
+* Abilities: Spawns babies on low health or death.
+* Speed: Medium-slow, predictable jumps.
+* Health: 650 (base).
+Vengefly King (Greenpath)
+* Moves: Charge dash across arena, summon vengeflies (up to 2), belly flop/jump.
+* Abilities: Summons adds; flies constantly.
+* Speed: Fast aerial movement.
+* Health: ~450 (main) + adds.
+Hornet Protector (Greenpath)
+* Moves: Dash + needle throw, parryable lunge, jump + silk binding (temp platforms), multi-needle volley.
+* Abilities: Silk lines for repositioning; very mobile.
+* Speed: Very fast and agile.
+* Health: ~900.
+Massive Moss Charger (Greenpath / Fungal Wastes)
+* Moves: Charge rush (horizontal), ground slam.
+* Abilities: Simple but high damage on hit.
+* Speed: Fast charge, slow otherwise.
+* Health: ~480.
+Mid Game
+Mantis Lords (Fungal Wastes)
+* Moves: Coordinated slashes (one or both), dive attacks, boomerang-like throws.
+* Abilities: Fight as duo (or trio in Godhome variant "Sisters of Battle").
+* Speed: Fast, synchronized.
+* Health: ~450 each.
+Soul Master / Soul Tyrant (City of Tears)
+* Moves: Soul orb projectiles (homing or spread), teleport + slam, floating orbs that explode, soul tornado.
+* Abilities: Teleport frequently; second phase adds more aggressive orbs.
+* Speed: Medium (teleport makes it feel fast).
+* Health: ~750 (Soul Master), higher for Tyrant.
+Dung Defender / White Defender (Royal Waterways)
+* Moves: Dung ball toss (bouncy), burrow dive + emerge, ground burst, shield bash (Zeal).
+* Abilities: Burrow for reposition; White Defender variant is faster/cleaner.
+* Speed: Medium, with fast bursts.
+* Health: ~800.
+Crystal Guardian / Enraged Guardian (Crystal Peak)
+* Moves: Horizontal laser beam, overhead crystal barrage (sky beams), hop + slam.
+* Abilities: Arena has crystals; second fight is enraged with more beams.
+* Speed: Slow movement, fast projectiles.
+* Health: Medium.
+Broken Vessel / Lost Kin (Ancient Basin)
+* Moves: Slash combos, aerial slash, leap + flail, slam, balloon infection blobs (spawn infected), headbanger.
+* Abilities: Infection blobs spawn adds; Lost Kin is dream version (more aggressive, no balloons?).
+* Speed: Medium-fast.
+* Health: High.
+Brooding Mawlek (Forgotten Crossroads, optional)
+* Moves: Slash, spit blobs, leap, vomit acid pool, slam.
+* Abilities: Acid pools linger.
+* Speed: Medium.
+* Health: ~1050.
+Late Mid / Optional
+Hive Knight (Hive)
+* Moves: Nail slashes, dash, bee summons, dive.
+* Abilities: Summons bees; very knight-like combat.
+* Speed: Fast and aggressive.
+* Health: High.
+Traitor Lord (Queen's Gardens)
+* Moves: Claw slashes, charge, spore clouds, jump attacks.
+* Abilities: High damage output; poison/spore mechanics.
+* Speed: Very fast.
+* Health: High.
+The Collector (Tower of Love)
+* Moves: Jar throw (captures + throws enemies), slash, leap grab.
+* Abilities: Summons random enemies from jars; chaotic.
+* Speed: Fast, erratic.
+* Health: High.
+Nosk (Deepnest)
+* Moves: Charge from ceiling, acid spit, pounce.
+* Abilities: Mimics as friendly NPC initially; second phase (Winged Nosk) adds flight.
+* Speed: Fast charges.
+* Health: High.
+Uumuu (Fog Canyon / Teacher's Archive)
+* Moves: Bubble attack, slam, spawn jellyfish.
+* Abilities: Requires Quirrel or spells to pop; floating.
+* Speed: Slow.
+* Health: Medium.
+Watcher Knights (City of Tears, Watcher’s Spire)
+* Moves: Roll charge, slash, jump.
+* Abilities: Fight 2–6 rolling knights sequentially or together.
+* Speed: Fast rolls.
+* Health: Per knight medium.
+Hornet Sentinel (Kingdom's Edge)
+* Moves: Enhanced version of first Hornet — more needles, silk binds, multi-dash.
+* Abilities: Arena has spikes/silk.
+* Speed: Very fast.
+* Health: Higher than first.
+Flukemarm (Royal Waterways)
+* Moves: Spawn flukes, body slam.
+* Abilities: Summons many adds.
+* Speed: Slow.
+* Health: Medium.
+DLC & Late Game
+Troupe Master Grimm (Grimm Troupe quest)
+* Moves: Fire bats (3 homing), dive dash (drill), dash uppercut + flame pillars, cloak spikes from ground.
+* Abilities: Teleports often; pufferfish-like balloon attack in later phases? (curtain call/firestorm).
+* Speed: Very fast and stylish.
+* Health: High.
+* Note: Nightmare King Grimm (dream version) is much harder/faster with tighter patterns.
+Nightmare King Grimm (Godhome / dream)
+* Enhanced version: More fire bats, double dives, faster spikes, firestorm, curtain call.
+* Speed: Extremely fast.
+Pure Vessel (Godhome — Pantheon of the Knight)
+* Moves: Nail combos, void tendrils, orb projectiles, dash slash, focus soul blast.
+* Abilities: Very clean, precise knight combat; multi-phase with void.
+* Speed: Very fast and fluid.
+* Health: Very high.
+The Hollow Knight (Final boss, multiple variants)
+* Moves: Nail slashes, void tendrils, scream (projectiles), pogo-vulnerable belly, infection bursts.
+* Abilities: Staggers reveal infection; final phase with Radiance influence.
+* Speed: Medium to fast.
+* Health: Very high.
+The Radiance / Absolute Radiance (Godhome — Pantheon of Hallownest)
+* Moves: Sword beams, light pillars, orb spam, platform destruction, laser eyes, spike floors, teleport slashes.
+* Abilities: Bullet-hell style in later phases; platforming elements.
+* Speed: Extremely aggressive with dense projectiles.
+* Health: Highest in game.
+Other notable variants / Godhome exclusives:
+* Failed Champion (dream False Knight) — bulkier, more rocks.
+* Lost Kin (dream Broken Vessel).
+* Winged Nosk.
+* Sisters of Battle (Godhome Mantis Lords).
+* God Tamer (Colosseum-style with beast).
+* Oblobbles (duo fight).
+Quick Notes for Your Jax2D RL Implementation
+* Pogo opportunities — Many bosses (Hornet, Grimm, Pure Vessel, Hollow Knight) reward skillful downward nail attacks.
+* Telegraphs — Almost all have clear wind-ups (animations/sounds) — perfect for RL observation (raycasts or timers).
+* Curriculum idea — Start with slow bosses (False Knight, Gruz Mother) → medium (Hornet, Mantis Lords) → fast/bullet-hell (Radiance, NKG).
+* Boss phases — Use health thresholds + state machine in jax.lax.cond or scan.
+* Speed tuning — Scale boss velocity/attack cooldowns with difficulty parameter in your procedural tasks.
+
+
+I grouped them by type/role (easy to implement as state machines) and gave:
+* Health (base HP — player nail does ~5–21 damage depending on upgrades; use your own scaling)
+* Damage (to player on contact or attack)
+* Movement Speed (relative: Slow / Medium / Fast / Very Fast; suggest units per second in your world scale, e.g. player run ~8–10 units/s)
+* Attack / Behavior (main moves + AI notes)
+* Pogo / Special (key for Hollow Knight feel)
+* Area (for level gen inspiration)
+All values are canonical from the game (wiki + community data). For RL, you'll tune multipliers (difficulty param) and add small randomness via env RNG.
+1. Basic Ground Walkers (Patrol / Charge)
+* Crawlid Health: 8–10 Damage: 4 (contact) Speed: Slow (walk only) Behavior: Walks back and forth on platforms. Turns at edges/walls. Pogo: Yes (easy bounce) Area: Early Crossroads. Simple starter enemy.
+* Gruzzer Health: 5–8 Damage: 4 Speed: Medium (flies slowly toward player) Behavior: Flying patrol, drifts in player direction. Pogo: Yes Area: Crossroads / early areas. First flying enemy.
+* Husk Wanderer / Husk Hornhead Health: 15–25 Damage: 8–10 (contact or horn) Speed: Medium (walk → charge) Behavior: Walks, then charges forward when player in range. Hornhead has longer reach. Pogo: Yes Area: Crossroads.
+* Baldur (Shelled) Health: 15 Damage: 8 (contact) Speed: Slow Behavior: Rolls into ball when approached, then charges. Pogo: Yes (when uncurled) Area: Greenpath / Fungal.
+2. Jumpers / Hoppers
+* Tiktik Health: 8 Damage: 5 Speed: Medium (quick hops) Behavior: Hops in arcs toward player. Pogo: Yes Area: Early vertical areas.
+* Mosscreep / Mossfly Health: 10–12 Damage: 5–6 Speed: Slow–Medium Behavior: Crawls or short flights, simple pathing. Pogo: Yes Area: Greenpath / Fungal Wastes.
+* Ambloom Health: 12 Damage: 6 Speed: Medium Behavior: Jumps and lunges short distances. Pogo: Yes
+3. Flyers / Ranged
+* Aspid Hatchling Health: 5 Damage: 4 (contact) Speed: Medium (fast fly) Behavior: Small flyers that swarm. Pogo: Yes
+* Aspid Hunter Health: 15 Damage: 8 (dash) Speed: Fast (dash toward player) Behavior: Dashes horizontally at player. Pogo: Yes
+* Aspid Mother Health: 20 Damage: 6 (contact) + spawns hatchlings Speed: Slow–Medium Behavior: Spits hatchlings when damaged/low health. Pogo: Yes
+* Belfly Health: 5 Damage: 10 (explosion on death or contact) Speed: Medium (floats then dives) Behavior: Floats, then dives explosively. Pogo: Risky (explodes)
+* Vengefly (regular) Health: 8–10 Damage: 6 Speed: Fast aerial Behavior: Flies and charges. Pogo: Yes
+4. Armored / Tanky
+* Armoured Squit Health: 40 Damage: 10 Speed: Medium (flies) Behavior: Armored flyer, takes reduced damage from front. Pogo: Yes (weaker from behind?)
+* Husk Guard (various) Health: 45–70 Damage: 12–15 (slash or wave) Speed: Medium (walk + attack) Behavior: Patrols, does nail slash or ground wave. Pogo: Yes
+* Moss Knight Health: 50 Damage: 12 Speed: Medium–Fast (aggressive) Behavior: Knight-like slashes, jumps. Pogo: Yes
+* Great Husk Sentry Health: 170 (big one) Damage: 15–20 Speed: Slow–Medium Behavior: Heavy sentry with strong attacks. Pogo: Yes
+5. Special / Hazard Enemies
+* Flukefey / Flukemunga Health: 100–150 Damage: 10–12 Speed: Slow Behavior: Spits or body slams, acid-like. Pogo: Yes
+* Durandoo (spits) Health: ~30–40 Damage: 8 (spit projectile) Speed: Slow movement Behavior: Stationary or slow, shoots projectiles. Pogo: Limited
+* Lightseed (infection blobs) Health: Very low (~5) Damage: 5 Speed: Slow float Behavior: Spawns from infected enemies, drifts. Pogo: Yes
+* Garpede (segmented worm) Health: High per segment (~50–100 total) Speed: Medium (crawls along walls/ceilings) Behavior: Long body follows path, damages on contact. Pogo: Possible on segments
+* Obble (variants: Battle Obble, etc.) Health: 30–70 Damage: 8–10 Speed: Medium Behavior: Bouncy or aggressive variants.
+6. Other Notable Normal Enemies
+* Pilflip / Flip enemies: Health 30, flips and attacks.
+* Brooding Mawlek adds / infection blobs: Low health, spawn on damage.
+* Crystal Crawler: Health ~40, crawls on crystals, shoots.
+* Spitter types: Shoot projectiles with cooldown.
+Recommended RL Implementation Tips (Reproducible)
+* Health scaling: Base HP as above. Multiply by difficulty factor (1.0 early → 2.5+ late). Use integer HP.
+* Damage to player: Keep 4–15 range. Player has masks (health), so balance for 1–3 hits per mistake.
+* Speed: Define in world units (e.g. player max run = 10.0). Slow=3–5, Medium=6–9, Fast=10–14, Very Fast=15+.
+* AI State Machine (simple FSM in JAX with lax.cond or scan):
+   * Patrol (back-forth or random)
+   * Aggro (move toward player when in range)
+   * Attack (cooldown-based)
+   * Recover / idle
+* Pogo detection: When player attacks downward + overlaps enemy top → apply upward impulse to player + damage enemy.
+* Procedural spawning: For a level, sample 3–8 enemies from a pool based on "biome" (Crossroads pool, Greenpath pool, Deepnest pool, etc.). Add masks for different numbers in vmap.
+* Curriculum order: Start with Crawlid/Gruzzer/Tiktik → add chargers → flyers → armored → spitters → combinations.
+Here's a clean, reproducible breakdown of **all major map areas** (regions/biomes) in *Hollow Knight*. This is tailored for your **Jax2D RL environment** — perfect for procedural level generation, biome-based enemy pools, task sampling, and curriculum progression.
+
+
+I've included:
+- **Progression order** (typical early-to-late flow, though the game is semi-open)
+- **Theme / Visual style** (helps with level gen flavor)
+- **Platforming / Combat focus**
+- **Typical enemies** (cross-reference with the enemy stats I gave earlier)
+- **Key bosses** (link to the boss list you already have)
+- **RL notes** (difficulty tier, generation ideas, hazards, unique mechanics)
+
+
+Copy-paste this directly into your doc.
+
+
+### Core Hallownest Areas (Main Map)
+
+
+| Area                        | Progression Tier | Theme / Style                  | Platforming Focus                  | Combat Focus                  | Typical Enemies (examples)                          | Key Bosses                          | RL Generation Notes / Hazards |
+|-----------------------------|------------------|--------------------------------|------------------------------------|-------------------------------|-----------------------------------------------------|-------------------------------------|-------------------------------|
+| **Dirtmouth**              | Hub (Start)     | Peaceful village, surface     | Minimal                            | None                          | None (safe zone)                                    | None                                | Starting point, benches, shops. No enemies. |
+| **Forgotten Crossroads**   | Early           | Dusty ruins, infection        | Basic jumps, small gaps            | Light combat                  | Crawlid, Gruzzer, Tiktik, Husk Wanderer, Baldur    | False Knight, Gruz Mother           | Simple open layouts, spike pits, geo rocks. Starter biome. |
+| **Greenpath**              | Early           | Lush jungle, acid pools       | Vine platforms, acid swimming (later) | Medium (swarms)              | Mosscreep, Mossfly, Vengefly, Ambloom, Aspid types  | Hornet Protector, Massive Moss Charger | Dense verticality, one-way vines, acid hazards. Great for dash practice. |
+| **Fungal Wastes**          | Early-Mid       | Mushroom forest, spores       | Bouncy mushrooms, narrow paths     | Medium (coordinated)          | Funglings, Shrumal variants, Mantis types           | Mantis Lords                        | Spore clouds (vision/obscure), bouncy terrain. Good for pogo + group fights. |
+| **City of Tears**          | Mid             | Rainy gothic city             | Rooftops, elevators, rain         | High (knights, sentries)      | Husk Guard, Sentry types, Winged Sentries           | Soul Master, Watcher Knights        | Vertical city layers, rain (slippery?), narrow ledges. Dense enemy patrols. |
+| **Crystal Peak**           | Mid             | Bright crystal mines          | Crystal platforms, minecarts      | Medium (lasers, crawlers)     | Crystal Crawler, Crystal Hunter                     | Crystal Guardian                    | Reflective crystals, laser hazards, mining carts as moving platforms. |
+| **Royal Waterways**        | Mid             | Sewers, acid/ooze             | Swimming sections, pipes          | Medium-High                   | Flukefey, Flukemunga, Dung enemies                  | Dung Defender, Flukemarm            | Acid pools (DoT), swimming mechanics (if added), tight corridors. |
+| **Ancient Basin**          | Mid-Late        | Dark underground basin        | Deep drops, monarch wings needed  | Medium (infection)            | Infected enemies, Broken Vessel adds                | Broken Vessel / Lost Kin            | Deep vertical shafts, shade cloak later. Infection blobs. |
+| **Deepnest**               | Late            | Dark spider nests, webs       | Web platforms, tight tunnels      | High (ambushes)               | Dirtcarver, Weaver types, Nosk variants             | Nosk, Beast's Den threats           | Darkness (limited vision rays?), webs as sticky platforms, ambush spawns. |
+| **Kingdom's Edge**         | Late            | Edge of the world, cliffs     | Windy jumps, acid below           | High                          | Primal Aspid, Hive enemies                          | Hornet Sentinel                     | Strong horizontal wind? (optional), long gaps, acid sea below. |
+| **Queen's Gardens**        | Late            | Overgrown royal gardens       | Dense foliage, thorns             | Very High                     | Moss Knight, Traitor Lord adds                      | Traitor Lord                        | Thorn hazards, dense platforming + combat. |
+| **Howling Cliffs**         | Optional Late   | Windy rocky cliffs            | High jumps, wind                  | Medium                        | Few unique, storm enemies                           | None major                          | Strong wind affecting jumps (procedural challenge). |
+| **Fog Canyon**             | Transitional    | Misty canyon, jellyfish       | Floating jelly platforms          | Low-Medium                    | Uumuu-related jelly, Oblobbles                      | Uumuu                               | Floating platforms, mist (visibility). Short connector area. |
+| **Resting Grounds**        | Mid-Late        | Graveyard, dream realm        | Minimal                           | Low (dream warriors)          | Dream enemies                                       | Various dream bosses (Xero, etc.)   | Dream nail interactions, essence collection. Quiet exploration. |
+| **The Abyss**              | Very Late       | Deep dark void                | Void jumps, shade cloak           | High                          | Shadow creatures                                    | None (story)                        | Extreme darkness, void tendrils. End-game feel. |
+
+
+### DLC / Special Areas (Separate or Optional)
+
+
+- **The Hive** — Bee-themed, vertical honeycombs. Fast aggressive enemies (Hive Knight boss). Sticky walls optional.
+- **Colosseum of Fools** — Arena trials. Wave-based combat (God Tamer, etc.). Great for survival tasks.
+- **White Palace** — Precision platforming nightmare (saw blades, spikes, timed platforms). No major enemies, pure Celeste-like challenge.
+- **Godhome** — Pantheon arenas (boss rush). Not for base world gen.
+
+
+### RL Implementation Recommendations (XLand-style)
+
+
+**Biome Pool System** (for procedural level gen):
+- Early pool: Forgotten Crossroads + Greenpath enemies
+- Mid pool: City of Tears + Crystal Peak + Royal Waterways
+- Late pool: Deepnest + Queen's Gardens + Kingdom's Edge
+- Mixed biomes for open-ended tasks (e.g. "Crossroads-style level but with Deepnest enemies")
+
+
+**Generation Parameters per Area**:
+- **Size** — Early: compact (800x600), Late: larger vertical/horizontal (2000x1200+)
+- **Density** — Early: open with clear paths; Late: dense obstacles + enemy patrols
+- **Hazards**:
+  - Spikes / acid pools (damage on contact)
+  - Moving platforms (kinematic bodies)
+  - One-way / bouncy surfaces
+  - Environmental effects (rain slippery, wind push, darkness = shorter raycasts)
+- **Task Types** (curriculum ramp):
+  - Early: Reach exit, collect geo/berries
+  - Mid: Clear all enemies + reach exit
+  - Late: Defeat boss / mini-boss, pogo across dangerous section, survive waves
+
+
+**Connection Logic** (for multi-room levels):
+- Levels can be single-room challenges or chained "rooms" with transition zones.
+- Procedural sampler picks a biome → samples enemy count + types from that pool → adds platforms/hazards matching the theme.
+
+
+**Curriculum Progression**:
+1. Dirtmouth / Forgotten Crossroads (movement only)
+2. Greenpath (dash + basic combat)
+3. Fungal Wastes / City of Tears (pogo + group fights)
+4. Mid-game mix
+5. Late-game + boss phases
+
+
+This gives you ~15 core areas to start with. You can implement a simple `biome_id` in your `GameConfig` or level generator, then have lookup tables for:
+- Enemy spawn weights
+- Hazard types
+- Background/platform color palettes (even if headless, useful for future visual obs)
+- Difficulty multiplier
+
+
+
+
+Here's a practical breakdown of **hitboxes** (areas that deal damage or cause effects) and **hurtboxes** (vulnerable areas that receive damage) from *Hollow Knight*. Since exact pixel/frame data isn't publicly documented in a clean table (most comes from hitbox-only mods, debug tools, and community videos), I've normalized everything for your **Jax2D RL environment**.
+
+
+We'll use **simple shapes** that are fast in JAX (rectangles, capsules, circles) while staying faithful to the original "feel". Hollow Knight is known for:
+- **Player hurtbox** being quite small and forgiving (mostly the body/torso).
+- **Nail attack hitbox** being generously large (bigger than the visual swing).
+- **Enemy hurtboxes** often smaller than their sprite (especially flyers).
+- **Contact damage hitboxes** (passive) usually matching or slightly smaller than the visual body.
+- **Attack hitboxes** having clear telegraphs but precise active frames.
+
+
+### 1. Player (The Knight)
+**Hurtbox** (what enemies hit):
+- Shape: **Capsule** or rounded rectangle (best for platformers in Jax2D).
+- Size (recommended in world units — tune so player width ≈ 1.0–1.2 units):
+  - Width: 0.8 – 1.0
+  - Height: 1.4 – 1.6 (tall but narrow — the "small hurtbox" feeling)
+  - Offset: Slightly above feet (head is less vulnerable in practice).
+- Notes: When dashing or sliding, it can feel even smaller. Many players note the visual sprite is larger than the actual hurtbox.
+
+
+**Nail Attack Hitbox** (what the player hits with):
+- Shape: **Rectangle** or thin box extending forward.
+- Size: Generously large — width 2.0–2.5 (horizontal), height 1.2–1.5.
+- Direction: Forward + slight upward/downward variants for pogo.
+- Downward (pogo) hitbox: Smaller rectangle or circle below the player (key for enemy bounces).
+- Notes: The nail swing hitbox is famously bigger than it looks — this is a big part of the satisfying combat feel.
+
+
+**Other**:
+- Spell hitboxes (e.g. Vengeful Spirit): Projectile rectangles or circles.
+- Dash: No damage, but temporary invuln or reduced hurtbox.
+
+
+### 2. Normal Enemies – Recommended Hitbox / Hurtbox Sizes
+Use these as base values. Scale with difficulty (e.g. ×1.2 for mid-game, ×1.5+ for late).
+
+
+| Enemy Type              | Hurtbox (vulnerable)              | Contact Hitbox (passive damage)   | Attack Hitbox (active)                  | Notes for Jax2D / Pogo                              |
+|-------------------------|-----------------------------------|-----------------------------------|-----------------------------------------|-----------------------------------------------------|
+| **Crawlid**            | Rectangle: 1.2w × 0.6h           | Rectangle: 1.4w × 0.7h           | None (contact only)                    | Simple, pogo-friendly on top.                      |
+| **Gruzzer / Vengefly** | Circle or Capsule: r=0.5–0.7     | Same as hurtbox                  | Forward rectangle on dash              | Flying — smaller hurtbox than sprite. Easy pogo.   |
+| **Tiktik**             | Rectangle: 0.9w × 0.8h           | Rectangle: 1.1w × 1.0h           | None                                   | Hopper — pogo on landing.                          |
+| **Baldur** (curled)    | Circle: r=0.8                    | Circle: r=0.9                    | Charge: rectangle forward              | Hurtbox shrinks when curled.                       |
+| **Husk Wanderer**      | Rectangle: 1.0w × 1.4h           | Rectangle: 1.2w × 1.5h           | Slash: rectangle in front (1.8w)       | Knight-like. Good for basic nail practice.         |
+| **Aspid Hunter**       | Capsule: 0.7w × 1.0h             | Capsule: 0.8w × 1.1h             | Dash: thin long rectangle              | Fast dash attack. Pogo possible.                   |
+| **Husk Guard**         | Rectangle: 1.3w × 1.6h           | Rectangle: 1.5w × 1.7h           | Slash/wave: larger forward box         | Armored feel — slightly generous hurtbox.          |
+| **Moss Knight**        | Rectangle: 1.4w × 1.8h           | Rectangle: 1.6w × 2.0h           | Slash combos                           | Tall, aggressive.                                  |
+
+
+**General Rule for Enemies**:
+- Hurtbox ≈ 80–95% of visual sprite size (especially small flyers).
+- Contact damage hitbox ≈ hurtbox or slightly larger (the "unfair" feeling some players complain about).
+- Attack hitboxes are active only during specific animation frames (use timers + `jax.lax.cond`).
+
+
+### 3. Bosses – Hitbox / Hurtbox Guidelines
+Bosses need **multi-part** or **phase-dependent** colliders. Start simple (single large body) then add attack-specific hitboxes.
+
+
+- **False Knight**: Huge rectangle (3.0w × 4.0h). Armor phases make hurtbox smaller until broken. Slam attack hitbox = wide ground rectangle + shockwaves.
+- **Hornet (both fights)**: Slim capsule (1.2w × 2.2h). Very agile — hurtbox feels smaller when moving. Needle throw = thin projectile. Dash lunge = long rectangle.
+- **Mantis Lords**: Each ~1.5w × 2.0h. Coordinated attacks have wide slash hitboxes.
+- **Soul Master**: Floating — capsule or circle (2.0w × 2.5h). Teleport makes effective hitbox tricky.
+- **Grimm / Nightmare King**: Tall and stylish (1.8w × 2.8h). Fire bat hitboxes = small circles/projectiles. Dive dash = long capsule.
+- **Pure Vessel**: Knight-like, ~1.6w × 2.4h. Very precise nail combos + void tendrils (line or area hitboxes).
+- **Radiance / Absolute Radiance**: Large but with many projectile hitboxes. Platform phases add environmental hurt zones. Laser eyes = thin long rectangles. Very tight "perfect" hitboxes (no leniency).
+
+
+**Pogo Rule (Critical for HK feel)**:
+- Most enemies/bosses have a **top hurtbox** that is extra vulnerable to downward attacks.
+- When player nail hits downward on an enemy's top → apply strong upward impulse to player + bonus damage or stun to enemy.
+- Implement as a separate small rectangle/circle on top of the main hurtbox.
+
+
+### Implementation Advice for Jax2D (Headless RL)
+1. **Jax2D Bodies**:
+   - Player: Dynamic **capsule** body (excellent for platformers).
+   - Most enemies: Dynamic **rectangle** or **circle** (fast).
+   - Complex bosses: Multiple attached bodies (main body + attack limbs) or use custom overlap checks after physics step.
+
+
+2. **Collision Handling**:
+   - Use Jax2D's built-in collision for terrain and basic body-vs-body.
+   - For **nail attacks** and **pogo**: Do **custom overlap queries** after the physics step (not relying only on rigid body contacts). This gives you full control.
+   - One-way platforms and custom game logic stay in your `step()` function.
+
+
+3. **State in EnvState**:
+   - Add fields like `player_hurtbox_offset`, `enemy_hurtboxes` (padded array of shapes + positions).
+   - For attacks: `active_hitboxes` list (type, position, size, damage).
+
+
+4. **Tuning Tips**:
+   - Start generous (larger player nail hitbox, smaller enemy hurtboxes) to make early training fun.
+   - Add a **difficulty multiplier** that shrinks enemy hurtboxes or grows attack hitboxes.
+   - Use raycasts in observations to let the agent "see" nearby hitbox edges.
+
+
+5. **Reproducibility**:
+   - Store all sizes in a config dict or JAX array lookup table (keyed by enemy_id or boss_id).
+   - Add small RNG jitter (±5–10%) per spawn for variety, but keep base values fixed.
+Here's a clean, reproducible breakdown of **environmental effects** and **traveling/traversal mechanics** from *Hollow Knight*. This is tailored for your **Jax2D RL environment** — fully vectorizable, with simple flags/timers in `EnvState`, and easy integration into procedural level gen and curriculum.
+
+
+### 1. Environmental Effects (Hazards & Modifiers)
+
+
+These are the main ones that affect movement, damage, or physics. Most are **area-based** or **object-based** and can be toggled per biome or per generated room.
+
+
+| Effect / Hazard              | Location Examples                  | How It Works (Original Game)                          | Damage / Effect                          | RL Implementation (Jax2D)                                                                 | Difficulty / Curriculum Notes |
+|-----------------------------|------------------------------------|-------------------------------------------------------|------------------------------------------|-------------------------------------------------------------------------------------------|-------------------------------|
+| **Spikes**                  | Everywhere (esp. late areas)      | Instant or rapid damage on contact                    | 1–2 masks (high)                        | Static polygons with "hazard" flag. Overlap check after physics step → instant death or big penalty. | Early training: avoid. Late: dense gauntlets. |
+| **Acid Pools**              | Royal Waterways, Queen's Gardens, Kingdom's Edge | Damage over time while touching/submerged            | ~1 mask per second (very punishing)     | Rectangular or polygonal hazard zones. DoT timer while overlapping. **Isma's Tear flag** disables damage + allows "swimming" (normal movement in pool). | Major progression gate. Add as unlockable ability. |
+| **Bouncy Mushrooms** (Purple) | Fungal Wastes                     | Strong upward bounce when pogo'd (downward nail)     | No damage, high launch velocity         | Kinematic or static bodies with special "bounce multiplier" on downward attack overlap. Apply strong impulse to player. | Reward skillful pogo. Great for vertical traversal tasks. |
+| **Vines / One-way Platforms** | Greenpath, Queen's Gardens       | Can climb or pass through in one direction           | None                                    | Custom post-physics collision filter (ignore when moving certain directions). | Core platforming mechanic — already planned for Celeste mode. |
+| **Webs**                    | Deepnest                          | Sticky / slow movement or temporary platforms        | Slows player or sticks briefly          | Apply friction/drag multiplier or temporary velocity dampening when overlapping. | Late-game: adds control challenge. |
+| **Rain (City of Tears)**    | City of Tears                     | Constant visual + minor slippery feel (subtle)       | Almost none                             | Optional: slight increase in air friction or reduced ground friction. Mostly cosmetic for RL. | Low impact — can ignore or add light slip. |
+| **Darkness / Fog**          | Deepnest, Fog Canyon, Abyss       | Reduced visibility                                | Shorter raycast range in obs            | Limit observation raycast distance or add noise/mask to nearby entity info. | Observation challenge for visual or raycast agents. |
+| **Wind**                    | Howling Cliffs, Kingdom's Edge    | Pushes player horizontally                        | Alters horizontal velocity              | Global or zone-based force applied each step (`jax.lax.cond`). Direction + strength. | Adds unpredictability to jumps/dashes. |
+| **Thorns / Spore Clouds**   | Queen's Gardens, Fungal Wastes    | Contact damage or temporary debuff                   | Damage or slow                          | Static hazard zones or timed area effects. | Medium hazard density. |
+| **Moving Platforms / Saws** | Crystal Peak, White Palace        | Kinematic bodies that move predictably               | Contact damage on saws                  | Jax2D kinematic bodies with scripted velocity. | Perfect for Jax2D — already supported. |
+| **Infection Blobs / Acid Rain** (boss-related) | Various (Nosk, etc.)            | Falling globs that create temporary acid pools       | DoT on contact                          | Spawn temporary dynamic hazard bodies that disappear after time. | Good for dynamic level events. |
+
+
+**Implementation Tips for Jax2D**:
+- Add a `hazards` field in `EnvState`: padded array of rectangles/circles with type, damage_rate, active flag.
+- After `scene.step()`, run custom overlap checks with `jax.lax.scan` or vectorized ops.
+- Player flags (e.g. `has_isma_tear: bool`) to modify behavior (e.g. no acid damage + different swim speed).
+- Damage over time: simple timer per hazard type that decrements masks/health.
+
+
+### 2. Traveling & Traversal Mechanics
+
+
+Hollow Knight is a **Metroidvania** — progression is gated by abilities that open new paths. For your RL XLand setup, treat these as **unlocked abilities** that can be enabled per task or via curriculum (start with basic movement → gradually unlock).
+
+
+**Core Movement Abilities (in rough progression order)**:
+- **Mothwing Cloak (Dash)** — Greenpath. Horizontal/8-dir dash with cooldown.
+- **Mantis Claw (Wall Climb / Wall Jump)** — Fungal Wastes. Allows climbing walls + angled jumps.
+- **Crystal Heart (Super Dash)** — Crystal Peak. Long horizontal charge dash (requires charging).
+- **Monarch Wings (Double Jump)** — Ancient Basin. Second air jump.
+- **Isma's Tear (Acid Swim)** — Royal Waterways. Swim in acid without damage + bubble visual (ignore for headless).
+- **Shade Cloak (Dash Upgrade)** — Abyss. Longer/faster dash + invuln frames.
+- **Nail Arts** ( Cyclone Slash, Dash Slash, Great Slash) — Optional combat traversal.
+
+
+**Fast Travel Systems** (less critical for single-level RL but useful for multi-room episodes):
+- **Stag Stations** — Pay geo once to unlock, then fast travel between stations. (Can simulate as "teleport zones" with cost.)
+- **Trams** — Connect distant areas (e.g. City to Deepnest).
+- **Dreamgate** (late) — Player-placed teleport points.
+
+
+**RL-Friendly Traversal Design**:
+- Levels are single self-contained rooms/challenges (or small chains of 2–5 connected rooms).
+- **Ability gating in curriculum**:
+  - Tier 1 (Early): Only walk/jump + basic dash.
+  - Tier 2: Add wall jump + pogo on mushrooms.
+  - Tier 3: Unlock double jump, acid swim, super dash for harder biomes.
+- Procedural gen can include "locked" paths that only open if the current task's ability set allows it.
+- Reward bonus for using new abilities skillfully (e.g. + for pogo chain on mushrooms, long super dash, acid swimming to shortcut).
+
+
+**How to Encode in EnvState**:
+```python
+@struct.dataclass
+class TraversalState:
+    unlocked_dash: bool = True
+    unlocked_wall_jump: bool = False
+    unlocked_double_jump: bool = False
+    has_isma_tear: bool = False
+    has_shade_cloak: bool = False
+    # etc.
+```
+
+
+Then in `step()` use `jax.lax.cond` to enable/disable mechanics.
+
+
+### Next Steps for Your Code
+With this + previous hitboxes/hazards/enemies/areas, you now have a solid foundation to generate believable Hollow Knight-style levels.
+
+
+Recommended order:
+1. Finish Celeste base movement (dash, coyote, one-way, wall jump).
+2. Add basic hazards (spikes + acid pools with Isma flag).
+3. Add bouncy mushrooms + pogo detection.
+4. Introduce simple environmental modifiers (wind, darkness-limited rays).
+5. Tie it to biome-specific generation (e.g. Fungal Wastes → high mushroom density + spore hazards).
+
+
+High-Priority Mechanics We Should Add Soon
+1. Soul System (Core Resource)
+* Hitting enemies with the nail generates Soul (usually ~11 per hit).
+* Soul is stored in vessels (up to 99 max, in segments of 33).
+* Used for:
+   * Healing (Focus): Spend 33 Soul to recover 1 mask. Can be interrupted.
+   * Casting Spells (33 Soul each).
+* RL notes: Add a soul counter in EnvState. Reward agents for efficient soul management (heal at right times, not waste on bad casts). Make Focus a distinct action with startup time and vulnerability.
+2. Full Movement Ability Progression (Unlockable via Curriculum)
+We have dash and basics, but missing:
+* Mantis Claw: Wall cling + wall jump (already partially planned).
+* Monarch Wings: Double jump (air jump).
+* Crystal Heart (Super Dash): Charge-up long horizontal "flight" dash (very useful for crossing gaps).
+* Shade Cloak (Dash Upgrade): Dash through enemies/hazards without taking damage (adds invuln frames or ignore collision).
+* Isma's Tear: Full acid immunity + normal movement while "swimming" in acid pools (we discussed the hazard, now the counter-ability).
+Implement as boolean flags in a TraversalAbilities struct. Curriculum starts with base movement → gradually enables these for harder biomes/tasks.
+3. Spells (3 Base + Upgrades)
+* Vengeful Spirit → Shade Soul: Horizontal projectile (linear shot, can hit multiple times in upgrade).
+* Desolate Dive → Descending Dark: Downward slam with ground splash + brief invuln on impact (great for crowd control and dodging).
+* Howling Wraiths → Abyss Shriek: Upward cone blast (excellent anti-air).
+Add as actions with Soul cost and cooldowns. Downward spell ties nicely into pogo-style play.
+4. Nail Arts (Charged Powerful Attacks)
+* Cyclone Slash: Spinning multi-hit around the player.
+* Dash Slash: Forward dash + strong slash.
+* Great Slash: Big charged frontal slash (higher damage).
+These require charging (hold attack button). Scale damage with nail upgrades. Good for high-reward skillful actions in combat.
+5. Dream Nail
+* Collects Essence from spirits/dreams.
+* Hits living enemies for 33 Soul (no damage).
+* Can "read" NPCs or activate Whispering Roots.
+* Late-game: Dreamgate (place warp points).
+For RL: Optional action that gives Soul on enemy hit (different from nail). Useful for resource-gathering tasks.
+Medium-Priority (Enhances Feel & Depth)
+* Nail Upgrades (Old → Sharpened → Channelled → Coiled → Pure Nail): Increases base damage. Can be a progression multiplier.
+* Geo (currency): Dropped by enemies, collected for small rewards. Optional — good for "collect X geo while surviving" tasks.
+* Charm System (optional but flavorful):
+   * Movement: Sprintmaster (run faster), Dashmaster (faster/more dashes, including down), Longnail/Mark of Pride (longer reach).
+   * Combat: Soul Catcher (more soul on hit), Sharp Shadow (dash does damage), etc.
+   * Many synergies (e.g. Dashmaster + Sprintmaster = big speed boost).
+   * For open-ended RL: Sample random charm loadouts per episode as "mutations" or task modifiers.
+* Focus Movement: With certain charms (Shape of Unn), you can move slowly while healing.
+* Knockback & Recoil: Nail hits push enemies and can recoil the player slightly (helps with positioning).
+Lower-Priority / Polish
+* Stag Stations & Trams: Fast travel between distant areas (simulate as optional teleport actions in multi-room levels).
+* Dream Realm / Warrior Dreams: Separate dream boss fights unlocked by Dream Nail.
+* Infection / Lifeblood / Other Statuses: Temporary buffs/debuffs.
+* Geo rocks / Breakable objects: Destructible terrain for rewards.
+* Enemy-specific interactions: Some enemies can be batted back (projectiles), or have weak points.
+Quick Recommendations for Your Code
+* Add these to EnvState:
+   1. soul: int
+   2. abilities: TraversalAbilities (dataclass with all flags)
+   3. nail_level: int (0–4)
+   4. active_effects: dict or flags for temporary buffs (invuln, etc.)
+* Expand action space: include spell choices, nail art charge, focus, dream nail.
+* Curriculum tiers:
+   1. Base movement + nail + pogo
+      * Spells + Soul management
+      * Nail Arts + Advanced abilities (double jump, super dash, acid swim)
+      * Charms / random modifiers for open-ended play
+How NPC Talking Actually Works in Celeste
+* Most "NPCs" (Theo, Granny, Oshiro, Badeline appearances, phone calls, etc.) are triggered by:
+   * Walking into a trigger zone (invisible rectangle).
+   * Pressing the up direction (or sometimes just proximity) near certain objects (e.g. Theo at campfires, payphones).
+* Dialogue is non-interactive for the player in the base game — it's a cutscene-style sequence that plays out automatically once triggered. You just stand there and watch/read.
+* After the dialogue finishes, the NPC usually disappears, gives a small hint, or the level continues. No branching choices in the vanilla game (except minor flavor).
+* Important cases where it matters for movement:
+   * Theo in some levels gives encouragement or minor story.
+   * Payphone in Old Site triggers a major story beat + Badeline chase.
+   * Some objects (like memorial, cassettes, strawberries in certain spots) have short flavor text when approached.
+In short: talking is passive — you walk up and it happens. The risk for RL agents is getting stuck in a loop trying to "solve" the NPC instead of continuing platforming.
+How We Should Handle NPCs / Talking in Our Jax2D Env (Headless RL)
+We want to keep it simple, fast, and anti-stuck while still feeling faithful to Celeste.
+Recommended Design (Minimal & Robust)
+1. NPCs as Static Trigger Entities
+   * Represent NPCs as static bodies or simple trigger rectangles in Jax2D (no physics simulation needed for them).
+   * Each has:
+      * Position + size (small interaction zone, e.g. 2.0 × 3.0 units).
+      * npc_type (enum: Theo, Granny, Oshiro, Payphone, Badeline_appearance, etc.).
+      * dialogue_id or short flag (e.g. "talked" bool per NPC).
+   * When player overlaps the trigger zone → automatically "talk" (no extra action needed).
+2. Interaction Mechanic (Anti-Stuck)
+   * Option A (Recommended for simplicity): Auto-trigger on overlap + face the NPC for 1–2 seconds.
+      * Agent gets a small shaped reward (+10–30) for "talking".
+      * Dialogue "plays" instantly in simulation (skip the text, just advance a timer or state).
+      * After trigger, mark as done and optionally remove the NPC or disable the trigger.
+      * This prevents agents from camping forever.
+   * Option B (Slightly more faithful): Require pressing Up while overlapping (add a binary "interact" action or mask it into existing actions).
+      * Risk: agents might ignore it or spam it → add a small negative if spamming without overlap.
+   * Option C (For open-ended tasks): Make some dialogues optional collectibles (e.g. "talk to Theo for bonus reward or hint").
+State in EnvState
+Python
+@struct.dataclass
+class NpcState:
+    positions: jnp.ndarray      # (max_npcs, 2)
+    sizes: jnp.ndarray          # (max_npcs, 2)
+    types: jnp.ndarray          # integer enum
+    talked: jnp.ndarray         # bool mask
+3.     active: jnp.ndarray         # bool mask
+4. Observations (Low-dim, Headless)
+   * Add to player obs: nearest NPC relative position + distance + "already_talked" flag + type embedding (one-hot or small vector).
+   * This lets the agent learn "walk near this thing → good reward → move on".
+5. Rewards & Anti-Stuck Logic
+   * +20–50 for first talk with an NPC (sparse storytelling reward).
+   * Tiny alive/progress bonus while near NPC during dialogue (encourages proper triggering).
+   * Big penalty or timeout if agent stays stuck in one spot > N steps without progress (general anti-stuck, not just for NPCs).
+   * In procedural levels: most rooms have 0–2 NPCs max. Some tasks require talking ("talk to Theo then reach exit").
+6. Procedural Generation Integration
+   * In level_gen for Celeste mode: randomly place 0–3 flavor NPCs per level based on "story tier" or biome flavor.
+   * Early levels: Theo-style encouragement NPCs.
+   * Later: more story-heavy (Badeline appearances as moving triggers that chase or block paths temporarily).
+Comparison: Celeste vs Hollow Knight NPCs
+* Celeste: Mostly passive flavor + occasional story gates. Low mechanical depth.
+* Hollow Knight: Some NPCs give items/quests (e.g. Cornifer, Iselda, Elderbug), but most are also flavor. Dialogue is more common but still mostly non-branching.
+Since your env has separate modes, you can make Celeste mode use the simple auto-trigger system above, and later add more complex quest-like NPCs in Hollow Knight mode (geo rewards, ability unlocks, etc.).
+Quick Decision Needed
+For the first version, I strongly recommend auto-trigger on overlap + small reward — it’s clean for RL, prevents stuck behavior, and matches how most Celeste dialogues actually play out (you just walk into them).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Here's a focused, reproducible spec for Celeste mode in your Jax2D RL environment. These values are normalized from the original game (pixel-per-second speeds, frame timings at 60 FPS) and tuned for a clean, buttery feel while staying fully JAX-friendly (pytree state, lax.cond, no floating-point surprises).
+1. World / Map Size (Headless RL Scale)
+* Native Celeste reference: Game renders at 320×180 pixels, with 8×8 pixel tiles. Typical room size ≈ 40 tiles wide × 23 tiles tall (320×184 pixels).
+* Your Jax2D units (recommended for physics stability):
+   * 1 world unit = 1 tile (so player is roughly 1 unit wide).
+   * Default level size: 40–60 units wide × 25–40 units tall (single "room" challenge).
+   * Procedural levels: 30–80 units wide × 20–60 units tall (vertical climbs common).
+   * Max world bounds (for safety): 200 × 150 units (allows chained rooms or large vertical shafts without issues).
+Why this scale?
+* Keeps numbers reasonable for JAX (no huge velocities).
+* Easy to map directly to tile-based procedural generation.
+* Camera/following is ignored (headless) — just simulate the full level.
+Player size (hitbox/hurtbox):
+* Capsule or rounded rectangle: width 0.9–1.0, height 1.4–1.6 (narrow and tall — matches the forgiving feel).
+2. Core Movement Constants (Celeste Feel)
+Tune these as hyperparameters. Start with these values — they give that responsive "buttery" control.
+Gravity & Falling
+* Gravity: -32 to -38 units/s² (strong but controllable).
+* Terminal fall speed: -16 to -20 units/s (normal), up to -24 when holding down (fast fall).
+* Half-gravity at jump peak (while holding jump): apply 0.5× gravity when upward velocity is low.
+Horizontal Movement
+* Max run speed (ground): 9–10 units/s.
+* Air max speed: slightly lower or same.
+* Ground acceleration: +16 to +20 units/s² (very snappy — reaches full speed in ~6 frames).
+* Air acceleration: +10 to +12 units/s².
+* Ground friction (deceleration when no input): high — stops almost instantly (~3 frames).
+* Air friction: lighter.
+Jumping
+* Jump height (short tap): ~4–5 units.
+* Variable jump (hold): up to ~7–8 units.
+* Initial jump velocity: +14 to +16 units/s.
+* Coyote time: 5–8 frames (~0.08–0.13 seconds) — grace period after leaving ground.
+* Jump buffer: 6–8 frames — queue jump input before landing.
+* Wall jump: angled kick (170 horizontal + 160 vertical speed burst).
+Dash (The Star Mechanic)
+* Dash speed: 24 units/s instantaneous velocity set (in any of 8 directions).
+* Dash duration: ~0.15 seconds (during which player has no control, then velocity decays).
+* Dash cooldown / refill: Refills on ground touch (or wall). Usually 1 dash in air.
+* Dash cancel: Possible into jump or wall jump.
+* Hyper / Super / Wave-dash tech: Emerges naturally if you implement correct timing + momentum preservation (no need to hardcode — reward agents that discover it).
+Other Feel Tech (Must-Have for "Celeste Feel")
+* Corner correction (dash pops you up slightly on edges).
+* One-way platforms (pass upward, land from above).
+* Wall slide (slow fall when holding against wall).
+* Moving platforms (kinematic bodies — player rides them properly with liftboost).
+3. Recommended EnvState Additions for Celeste Mode
+Python
+@struct.dataclass
+class CelesteState:
+    # Player physics (integrated with Jax2D body)
+    on_ground: bool
+    coyote_timer: float          # counts down
+    jump_buffer_timer: float
+    dash_remaining: int          # 0 or 1 (or more with upgrades)
+    dash_cooldown: float
+    facing: int                  # -1 or +1
+    wall_slide_timer: float
+    
+    # Timers for forgiveness
+    half_gravity_active: bool
+In step():
+* Use jax.lax.cond chains for ground/air logic, coyote, buffer, dash state machine.
+* Apply dash as velocity override before or after Jax2D scene.step().
+* Post-process for one-way platforms, corner correction, wall jump.
+4. Action Space (Simple & Effective)
+* Discrete or multi-discrete:
+   * Move X: -1 / 0 / +1 (or continuous -1 to 1)
+   * Jump: binary (with buffering)
+   * Dash: 9 options (none + 8 directions) or separate button + direction
+* Total actions: ~12–20 — keeps it manageable for PPO/ES.
+5. Level Design Guidelines for Procedural Gen (XLand-style)
+* Early levels: short horizontal + small gaps, 1–2 dashes needed.
+* Mid: vertical climbs, precise dashes over spikes, moving platforms.
+* Hard: tight dash timing, hyper/super opportunities, one-way + spike combos.
+* Max episode steps: 600–1500 (10–40 seconds real time at 60 Hz sim).
+* Hazards: spikes (instant death), moving platforms, disappearing blocks (optional).
+Curriculum ideas:
+* Start with no dash → add dash → add wall jump → require advanced tech (hyper timing, extended dashes).
+Quick Tuning Advice
+* Make acceleration very fast on ground — this is what makes Celeste feel crisp.
+* Dash should feel instant and weighty (big velocity change).
+* Test with a human-playable mode first (even if headless, add simple keyboard input) to verify the "buttery" feel before training agents.
+* Once movement is solid, agents will discover supers, hypers, wall-bounces, etc., naturally — reward progress toward goal + skillful dash usage.
+This setup should feel very close to original Celeste while running at thousands of parallel envs.
