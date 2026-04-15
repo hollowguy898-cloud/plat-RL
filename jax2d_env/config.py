@@ -338,16 +338,71 @@ ENEMY_STATS: Dict[EnemyType, Dict] = {
 # BOSS TYPES & PHASES
 # ============================================================================
 
+class CelesteBossType(enum.IntEnum):
+    """Celeste boss/chase encounters used for mode-specific tasks."""
+    OSHIRO = 0
+    BADELINE_CHASE = 1
+    BADELINE_BOSS = 2
+
+
+CELESTE_BOSS_STATS: Dict[CelesteBossType, Dict] = {
+    CelesteBossType.OSHIRO: {
+        "health": 700,
+        "damage": 1,  # Celeste uses death/reset; this is a normalized RL damage unit
+        "speed": 11.0,
+        "speed_class": "fast",
+        "phases": 1,
+    },
+    CelesteBossType.BADELINE_CHASE: {
+        "health": 900,
+        "damage": 1,
+        "speed": 13.0,
+        "speed_class": "very_fast",
+        "phases": 2,
+    },
+    CelesteBossType.BADELINE_BOSS: {
+        "health": 1100,
+        "damage": 1,
+        "speed": 14.0,
+        "speed_class": "very_fast",
+        "phases": 3,
+    },
+}
+
+
 class BossType(enum.IntEnum):
     """Boss type IDs."""
     FALSE_KNIGHT = 0
     GRUZ_MOTHER = 1
-    HORNET_PROTECTOR = 2
-    MANTIS_LORDS = 3
-    SOUL_MASTER = 4
-    CRYSTAL_GUARDIAN = 5
-    GRIMM = 6
-    PURE_VESSEL = 7
+    VENGEFLY_KING = 2
+    HORNET_PROTECTOR = 3
+    MASSIVE_MOSS_CHARGER = 4
+    MANTIS_LORDS = 5
+    SOUL_MASTER = 6
+    DUNG_DEFENDER = 7
+    CRYSTAL_GUARDIAN = 8
+    BROKEN_VESSEL = 9
+    BROODING_MAWLEK = 10
+    HIVE_KNIGHT = 11
+    TRAITOR_LORD = 12
+    THE_COLLECTOR = 13
+    NOSK = 14
+    UUMUU = 15
+    WATCHER_KNIGHTS = 16
+    HORNET_SENTINEL = 17
+    FLUKEMARM = 18
+    TROUPE_MASTER_GRIMM = 19
+    NIGHTMARE_KING_GRIMM = 20
+    PURE_VESSEL = 21
+    THE_HOLLOW_KNIGHT = 22
+    THE_RADIANCE = 23
+    ABSOLUTE_RADIANCE = 24
+    FAILED_CHAMPION = 25
+    LOST_KIN = 26
+    WINGED_NOSK = 27
+    SISTERS_OF_BATTLE = 28
+    GOD_TAMER = 29
+    OBBLOBBLES = 30
 
 
 # Boss base stats: (health, damage, speed, num_phases)
@@ -365,11 +420,23 @@ BOSS_STATS: Dict[BossType, Dict] = {
         "speed": 5.0,
         "speed_class": "medium_slow",
     },
+    BossType.VENGEFLY_KING: {
+        "health": 450,
+        "damage": 8,
+        "speed": 11.0,
+        "speed_class": "fast",
+    },
     BossType.HORNET_PROTECTOR: {
         "health": 900,
         "damage": 10,
         "speed": 12.0,
         "speed_class": "very_fast",
+    },
+    BossType.MASSIVE_MOSS_CHARGER: {
+        "health": 480,
+        "damage": 9,
+        "speed": 10.0,
+        "speed_class": "fast",
     },
     BossType.MANTIS_LORDS: {
         "health": 450,  # per lord
@@ -384,18 +451,90 @@ BOSS_STATS: Dict[BossType, Dict] = {
         "speed": 8.0,
         "speed_class": "fast",
     },
+    BossType.DUNG_DEFENDER: {
+        "health": 800,
+        "damage": 9,
+        "speed": 7.5,
+        "speed_class": "medium",
+    },
     BossType.CRYSTAL_GUARDIAN: {
         "health": 400,
         "damage": 10,
         "speed": 4.0,
         "speed_class": "slow",
     },
-    BossType.GRIMM: {
+    BossType.BROKEN_VESSEL: {
+        "health": 1200,
+        "damage": 10,
+        "speed": 8.0,
+        "speed_class": "medium_fast",
+    },
+    BossType.BROODING_MAWLEK: {
+        "health": 1050,
+        "damage": 10,
+        "speed": 7.0,
+        "speed_class": "medium",
+    },
+    BossType.HIVE_KNIGHT: {
+        "health": 900,
+        "damage": 11,
+        "speed": 11.0,
+        "speed_class": "fast",
+    },
+    BossType.TRAITOR_LORD: {
+        "health": 1200,
+        "damage": 13,
+        "speed": 13.0,
+        "speed_class": "very_fast",
+    },
+    BossType.THE_COLLECTOR: {
+        "health": 1100,
+        "damage": 10,
+        "speed": 11.0,
+        "speed_class": "fast",
+    },
+    BossType.NOSK: {
+        "health": 900,
+        "damage": 12,
+        "speed": 12.0,
+        "speed_class": "fast",
+    },
+    BossType.UUMUU: {
+        "health": 700,
+        "damage": 8,
+        "speed": 3.5,
+        "speed_class": "slow",
+    },
+    BossType.WATCHER_KNIGHTS: {
+        "health": 450,  # per knight
+        "damage": 10,
+        "speed": 11.5,
+        "speed_class": "fast",
+    },
+    BossType.HORNET_SENTINEL: {
+        "health": 1400,
+        "damage": 12,
+        "speed": 14.0,
+        "speed_class": "very_fast",
+    },
+    BossType.FLUKEMARM: {
+        "health": 650,
+        "damage": 9,
+        "speed": 3.0,
+        "speed_class": "slow",
+    },
+    BossType.TROUPE_MASTER_GRIMM: {
         "health": 1000,
         "health_per_phase": [1000, 1200],
         "damage": 12,
         "speed": 14.0,
         "speed_class": "very_fast",
+    },
+    BossType.NIGHTMARE_KING_GRIMM: {
+        "health": 1600,
+        "damage": 14,
+        "speed": 16.0,
+        "speed_class": "extremely_fast",
     },
     BossType.PURE_VESSEL: {
         "health": 1500,
@@ -403,6 +542,130 @@ BOSS_STATS: Dict[BossType, Dict] = {
         "speed": 13.0,
         "speed_class": "very_fast",
     },
+    BossType.THE_HOLLOW_KNIGHT: {
+        "health": 1700,
+        "damage": 14,
+        "speed": 10.0,
+        "speed_class": "medium_fast",
+    },
+    BossType.THE_RADIANCE: {
+        "health": 2200,
+        "damage": 16,
+        "speed": 15.0,
+        "speed_class": "extremely_fast",
+    },
+    BossType.ABSOLUTE_RADIANCE: {
+        "health": 2600,
+        "damage": 18,
+        "speed": 16.0,
+        "speed_class": "extremely_fast",
+    },
+    BossType.FAILED_CHAMPION: {
+        "health": 900,
+        "damage": 14,
+        "speed": 6.0,
+        "speed_class": "medium",
+    },
+    BossType.LOST_KIN: {
+        "health": 1300,
+        "damage": 13,
+        "speed": 10.0,
+        "speed_class": "fast",
+    },
+    BossType.WINGED_NOSK: {
+        "health": 1100,
+        "damage": 13,
+        "speed": 13.0,
+        "speed_class": "very_fast",
+    },
+    BossType.SISTERS_OF_BATTLE: {
+        "health": 450,  # per sister
+        "damage": 13,
+        "speed": 14.0,
+        "speed_class": "very_fast",
+    },
+    BossType.GOD_TAMER: {
+        "health": 1400,
+        "damage": 12,
+        "speed": 10.5,
+        "speed_class": "fast",
+    },
+    BossType.OBBLOBBLES: {
+        "health": 850,  # per obblobble
+        "damage": 11,
+        "speed": 8.0,
+        "speed_class": "medium_fast",
+    },
+}
+
+
+# ============================================================================
+# NPC TYPES (CELESTE + HOLLOW KNIGHT)
+# ============================================================================
+
+class CelesteNpcType(enum.IntEnum):
+    """Major Celeste NPC/event trigger types."""
+    THEO = 0
+    GRANNY = 1
+    OSHIRO = 2
+    BADELINE = 3
+    PAYPHONE = 4
+
+
+class HollowKnightNpcType(enum.IntEnum):
+    """Major Hollow Knight NPC types used for dialogue/reward triggers."""
+    ELDERBUG = 0
+    CORNIFER = 1
+    ISELDA = 2
+    QUIRREL = 3
+    HORNET = 4
+    ZOTE = 5
+    BRETTA = 6
+    SALUBRA = 7
+    SEER = 8
+    NAILSMITH = 9
+    SLY = 10
+    LEG_EATER = 11
+    MILLIBELLE = 12
+    TUK = 13
+    DIVINE = 14
+    BRUMM = 15
+    MIDWIFE = 16
+    CLOTH = 17
+    DUNG_DEFENDER = 18
+    WHITE_LADY = 19
+
+
+CELESTE_NPC_PROFILES: Dict[CelesteNpcType, Dict] = {
+    CelesteNpcType.THEO: {"role": "story", "reward": 25},
+    CelesteNpcType.GRANNY: {"role": "story", "reward": 20},
+    CelesteNpcType.OSHIRO: {"role": "story_boss_intro", "reward": 30},
+    CelesteNpcType.BADELINE: {"role": "story_rival", "reward": 30},
+    CelesteNpcType.PAYPHONE: {"role": "story_event", "reward": 35},
+}
+
+
+HK_NPC_PROFILES: Dict[HollowKnightNpcType, Dict] = {
+    HollowKnightNpcType.ELDERBUG: {"role": "town_dialogue", "geo_reward": 0},
+    HollowKnightNpcType.CORNIFER: {"role": "map_vendor", "geo_reward": 10},
+    HollowKnightNpcType.ISELDA: {"role": "shopkeeper", "geo_reward": 0},
+    HollowKnightNpcType.QUIRREL: {"role": "story_helper", "geo_reward": 15},
+    HollowKnightNpcType.HORNET: {"role": "rival_story", "geo_reward": 0},
+    HollowKnightNpcType.ZOTE: {"role": "comic_relief", "geo_reward": 5},
+    HollowKnightNpcType.BRETTA: {"role": "town_story", "geo_reward": 5},
+    HollowKnightNpcType.SALUBRA: {"role": "charm_vendor", "geo_reward": 0},
+    HollowKnightNpcType.SEER: {"role": "essence_rewards", "geo_reward": 10},
+    HollowKnightNpcType.NAILSMITH: {"role": "upgrade_vendor", "geo_reward": 0},
+    HollowKnightNpcType.SLY: {"role": "shopkeeper", "geo_reward": 0},
+    HollowKnightNpcType.LEG_EATER: {"role": "fragile_charms", "geo_reward": 0},
+    HollowKnightNpcType.MILLIBELLE: {"role": "banker", "geo_reward": 0},
+    HollowKnightNpcType.TUK: {"role": "rancid_egg_vendor", "geo_reward": 0},
+    HollowKnightNpcType.DIVINE: {"role": "grimm_troupe", "geo_reward": 0},
+    HollowKnightNpcType.BRUMM: {"role": "grimm_troupe", "geo_reward": 0},
+    HollowKnightNpcType.MIDWIFE: {"role": "deepnest_story", "geo_reward": 5},
+    HollowKnightNpcType.CLOTH: {"role": "combat_helper", "geo_reward": 10},
+    HollowKnightNpcType.DUNG_DEFENDER: {"role": "friendly_boss_npc", "geo_reward": 10},
+    HollowKnightNpcType.WHITE_LADY: {"role": "late_story", "geo_reward": 20},
 }
 
 
@@ -487,6 +750,9 @@ class BiomeType(enum.IntEnum):
     ABYSS = 13
     HIVE = 14
     WHITE_PALACE = 15
+    DIRTMOUTH = 16
+    COLOSSEUM_OF_FOOLS = 17
+    GODHOME = 18
 
 
 # Biome properties
@@ -672,6 +938,117 @@ BIOME_PROPS: Dict[BiomeType, Dict] = {
         "platforms_density": 0.75,
         "gravity_mult": 1.0,
     },
+    BiomeType.DIRTMOUTH: {
+        "difficulty_tier": "hub",
+        "width_range": (25, 40),
+        "height_range": (15, 25),
+        "enemy_pool": [],
+        "hazards": [],
+        "platforms_density": 0.2,
+        "gravity_mult": 1.0,
+    },
+    BiomeType.COLOSSEUM_OF_FOOLS: {
+        "difficulty_tier": "late_optional",
+        "width_range": (45, 75),
+        "height_range": (35, 65),
+        "enemy_pool": [
+            EnemyType.PRIMAL_ASPID,
+            EnemyType.HUSK_GUARD,
+            EnemyType.MOSS_KNIGHT,
+        ],
+        "hazards": [HazardType.SPIKE, HazardType.THORN],
+        "platforms_density": 0.5,
+        "gravity_mult": 1.0,
+    },
+    BiomeType.GODHOME: {
+        "difficulty_tier": "boss_rush",
+        "width_range": (40, 70),
+        "height_range": (30, 55),
+        "enemy_pool": [],
+        "hazards": [HazardType.SPIKE],
+        "platforms_density": 0.4,
+        "gravity_mult": 1.0,
+    },
+}
+
+
+# ============================================================================
+# MAP COVERAGE (CANONICAL AREA/CHAPTER TABLES)
+# ============================================================================
+
+class HollowKnightMapArea(enum.IntEnum):
+    """Major Hollow Knight map regions (core + optional/DLC)."""
+    DIRTMOUTH = 0
+    FORGOTTEN_CROSSROADS = 1
+    GREENPATH = 2
+    FUNGAL_WASTES = 3
+    CITY_OF_TEARS = 4
+    CRYSTAL_PEAK = 5
+    ROYAL_WATERWAYS = 6
+    ANCIENT_BASIN = 7
+    DEEPNEST = 8
+    KINGDOMS_EDGE = 9
+    QUEENS_GARDENS = 10
+    HOWLING_CLIFFS = 11
+    FOG_CANYON = 12
+    RESTING_GROUNDS = 13
+    THE_ABYSS = 14
+    THE_HIVE = 15
+    COLOSSEUM_OF_FOOLS = 16
+    WHITE_PALACE = 17
+    GODHOME = 18
+
+
+HK_MAP_PROPS: Dict[HollowKnightMapArea, Dict] = {
+    HollowKnightMapArea.DIRTMOUTH: {"tier": "hub", "focus": "safe_zone"},
+    HollowKnightMapArea.FORGOTTEN_CROSSROADS: {"tier": "early", "focus": "starter_combat_platforming"},
+    HollowKnightMapArea.GREENPATH: {"tier": "early", "focus": "vertical_platforming_acid"},
+    HollowKnightMapArea.FUNGAL_WASTES: {"tier": "early_mid", "focus": "bounce_pogo_groups"},
+    HollowKnightMapArea.CITY_OF_TEARS: {"tier": "mid", "focus": "dense_patrols_vertical_routes"},
+    HollowKnightMapArea.CRYSTAL_PEAK: {"tier": "mid", "focus": "laser_hazards_minecart_routes"},
+    HollowKnightMapArea.ROYAL_WATERWAYS: {"tier": "mid", "focus": "acid_dot_tight_corridors"},
+    HollowKnightMapArea.ANCIENT_BASIN: {"tier": "mid_late", "focus": "deep_shafts_infection"},
+    HollowKnightMapArea.DEEPNEST: {"tier": "late", "focus": "ambush_darkness_tunnels"},
+    HollowKnightMapArea.KINGDOMS_EDGE: {"tier": "late", "focus": "long_gaps_wind"},
+    HollowKnightMapArea.QUEENS_GARDENS: {"tier": "late", "focus": "thorn_precision_combat"},
+    HollowKnightMapArea.HOWLING_CLIFFS: {"tier": "late_optional", "focus": "wind_exposure"},
+    HollowKnightMapArea.FOG_CANYON: {"tier": "transitional", "focus": "floating_jelly_platforms"},
+    HollowKnightMapArea.RESTING_GROUNDS: {"tier": "mid_late", "focus": "dream_events_low_combat"},
+    HollowKnightMapArea.THE_ABYSS: {"tier": "very_late", "focus": "void_darkness_endgame"},
+    HollowKnightMapArea.THE_HIVE: {"tier": "late_optional", "focus": "aggressive_swarm_vertical"},
+    HollowKnightMapArea.COLOSSEUM_OF_FOOLS: {"tier": "arena", "focus": "wave_survival"},
+    HollowKnightMapArea.WHITE_PALACE: {"tier": "special", "focus": "precision_saw_platforming"},
+    HollowKnightMapArea.GODHOME: {"tier": "special", "focus": "boss_rush_pantheons"},
+}
+
+
+class CelesteMapArea(enum.IntEnum):
+    """Celeste chapters/sub-areas used for map-faithful task sampling."""
+    PROLOGUE = 0
+    CH1_FORSAKEN_CITY = 1
+    CH2_OLD_SITE = 2
+    CH3_CELESTIAL_RESORT = 3
+    CH4_GOLDEN_RIDGE = 4
+    CH5_MIRROR_TEMPLE = 5
+    CH6_REFLECTION = 6
+    CH7_SUMMIT = 7
+    CH8_CORE = 8
+    CH9_FAREWELL = 9
+    EPILOGUE = 10
+
+
+CELESTE_MAP_PROPS: Dict[CelesteMapArea, Dict] = {
+    CelesteMapArea.PROLOGUE: {"tier": "intro", "focus": "basic_run_jump"},
+    CelesteMapArea.CH1_FORSAKEN_CITY: {"tier": "early", "focus": "dash_intro_strawberries"},
+    CelesteMapArea.CH2_OLD_SITE: {"tier": "early", "focus": "dream_blocks_badeline_chase"},
+    CelesteMapArea.CH3_CELESTIAL_RESORT: {"tier": "mid", "focus": "moving_obstacles_oshiro_pressure"},
+    CelesteMapArea.CH4_GOLDEN_RIDGE: {"tier": "mid", "focus": "wind_forces_cloud_jumps"},
+    CelesteMapArea.CH5_MIRROR_TEMPLE: {"tier": "mid", "focus": "seekers_tight_routes"},
+    CelesteMapArea.CH6_REFLECTION: {"tier": "mid_late", "focus": "feather_bumpers_badeline_boss"},
+    CelesteMapArea.CH7_SUMMIT: {"tier": "late", "focus": "full_mechanics_gauntlet"},
+    CelesteMapArea.CH8_CORE: {"tier": "late", "focus": "hot_cold_state_switching"},
+    CelesteMapArea.CH9_FAREWELL: {"tier": "expert", "focus": "ultra_precision_stamina_control"},
+    CelesteMapArea.EPILOGUE: {"tier": "story", "focus": "non_combat_transition"},
 }
 
 
